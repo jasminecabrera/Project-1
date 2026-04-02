@@ -3,6 +3,7 @@ title: "Project-1 Checkpoint"
 author: "Ruben Jimenez, Jasmine Cabrera, Cameron An"
 format: html
 editor: visual
+embed-resources: true
 ---
 
 **1. Describe context of the data.**
@@ -23,9 +24,33 @@ editor: visual
 
 Lastly, there are some data regarding the population of countries and the rate of disease occurrence.
 
+```{r}
+#| warning: false
+# load packages
+library(tidytuesdayR)
+
+# load data
+cases_month <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_month.csv')
+cases_year <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_year.csv')
+
+head(cases_month)
+```
+
 **2. Explain what cleaning has to be done to the data.**
 
 We have to figure out how to handle the NA cases. Many of the entries have NA values for rubella cases across clinical, epi-linked and lab confirmed cases which impacts the total rubella cases. This may be due to which resources countries are limited to since rubella cases and measles cases are two individual tests. Additionally, some countries such as Chad, don’t have data for some months throughout the year.
+
+```{r}
+# checking NA
+sum(apply(is.na(cases_month), 1, any))
+colSums(is.na(cases_month))
+
+# measles
+cases_month[is.na(cases_month$rubella_clinical), ]
+
+# rubella
+cases_month[is.na(cases_month$rubella_clinical), ]
+```
 
 \
 **3. Pose at least two research questions that could be addressed with these data.**
