@@ -1,5 +1,5 @@
 ---
-title: "project-2-checkpoint"
+title: "project-1-checkpoint2"
 author: "Jasmine Cabrera"
 format: html
 editor: visual
