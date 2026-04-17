@@ -16,6 +16,7 @@ library(tidytuesdayR)
 library(tidyverse)
 library(stringi)
 library(gt)
+library(readr)
 
 # load data
 cases_month <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2025/2025-06-24/cases_month.csv')
@@ -70,6 +71,8 @@ measles_year <- cases_year |>
          "Total Discarded per Million" = discarded_non_measles_rubella_cases_per_100000_total_population) |>
   mutate(ASCII = stri_trans_general(Country, "Latin-ASCII")) |>
   slice(-1)
+
+write_csv(measles_year, "measles_year.csv")
 ```
 
 ## Functions
