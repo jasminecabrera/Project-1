@@ -428,11 +428,16 @@ ggplot(aes(x = `Life Expectancy 2024`, y = total_rate_avg, color = Region)) +
 
 # API
 
+## Rest API
+
 **Data Description:** This is country-level data with 45 potential fields. We obtained the 10 most important variables for our analyses: country name, geolocation (longitude & latitude), population density, gdp, border nations, gini, hdi, government type, and religion. We plan on looking at measles rates related to socioeconomic variables like government, religion, hdi, gini, and gdp. We also plan on looking at measles rates related to geographic factors like border nations and geolocation. We need variables like cca3 to use in identifying country matches to join to our other dataframes. Variables like border are maintained in lists due to their varying lengths.
 
-**Source:** [https://restcountries.com/ ](https://restcountries.com/)
+**Note**: Variables like border are maintained in lists due to their varying lengths.
+
+**Source:** <https://restcountries.com/>
 
 ```{r}
+#| warning: false
 world_df <- GET("https://restcountries.com/v4/all?fields=cca3,geolocation,area,borders,hdi,gini,government,religion") |> 
   (\(x) rawToChar(x$content))() |> 
   fromJSON() |>
@@ -441,25 +446,106 @@ world_df <- GET("https://restcountries.com/v4/all?fields=cca3,geolocation,area,b
   rename("ISO3" = cca3) |>
   arrange(ISO3)
 
+world_df <- world_df |>
+  mutate(Religion = map_chr(religion_name, ~ paste(.x, collapse = ", ")),
+         `Religion Pop.` = map_chr(religion_population, ~ paste(.x, collapse = ", ")),
+         `Pct Religious` = map_chr(religion_percentage, ~ paste(.x, collapse = ", "))) |>
+  mutate(Religion = str_replace_all(Religion, ",\\s*", ","),
+         `Religion Pop.` = str_replace_all(`Religion Pop.`, ",\\s*", ","),
+         `Pct Religious` = str_replace_all(`Pct Religious`, ",\\s*", ",")) |>
+  separate(Religion,
+           into = c("Primary Religion", "Secondary Religion",
+                    "Tertiary Religion"),
+           sep = ",", fill = "right") |>
+  separate(`Religion Pop.`,
+           into = c("Primary Religion Pop", "Secondary Religion Pop",
+                    "Tertiary Religion Pop"),
+           sep = ",", fill = "right") |>
+  separate(`Pct Religious`,
+           into = c("Primary Pct Religious", "Secondary Pct Religious",
+                    "Tertiary Pct Religious"),
+           sep = ",", fill = "right") |>
+  mutate(across(contains("Pop"),
+                ~ as.numeric(str_replace_all(.x, ",", ""))),
+         across(contains("Pct"), as.numeric)) |>
+  select(-c(religion_name, religion_population, religion_percentage, 
+            `Secondary Pct Religious`, `Tertiary Pct Religious`,
+            `Secondary Religion Pop`, `Tertiary Religion Pop`,
+            `Secondary Religion`, `Tertiary Religion`))
+
 world_df |>
-  head(5) |>
+  head(10) |>
+  select(-government_leaders) |>
   gt() |> tab_header(title = md("REST API Data")) |>
     cols_label(ISO3 = md("**ISO3**"),
                gini_year = md("**GINI Year**"),
                gini_value = md("**GINI Value**"),
                geolocation_latitude = md("**Latitude**"),
                geolocation_longitude = md("**Longitude**"),
-               religion_name = md("**Religions**"),
-               religion_population = md("**Religion Populations**"),
-               religion_percentage = md("**Religion Percentages**"),
+               `Primary Religion` = md("**Primary Religion**"),
+               `Primary Religion Pop` = md("**Primary Religion Population**"),
+               `Primary Pct Religious` = md("**Primary Pct Religious**"),
                government_type = md("**Government Type**"),
-               government_leaders = md("**Government Leaders**"),
                hdi = md("**Human Development Index**"),
                borders = md("**Border Nations**"),
                area = md("**Land Area**")) |>
-  fmt_number(decimals = 3, use_seps = TRUE) |>
+  fmt_number(columns = c(`Primary Religion Pop`,
+                         area),
+             decimals = 0,
+             use_seps = TRUE) |>
+  fmt_number(columns = -c(`Primary Religion Pop`, 
+                          area),
+             decimals = 3,
+             use_seps = TRUE) |>
   tab_caption(md("Table 1. Variables left in lists have varying lengths"))
 
+```
+
+## GDP API
+
+**Data Description:** We also have another API dataset that contains GDP data for each country. We are interested in seeing how a country's (or region's) GDP impacts their measles rates. The variables include:
+
+-   *gdp_growth*: GDP growth rate as a percentage
+-   *gdp_nominal*: Nominal GDP in billions of US dollars
+-   *gdp_per_capita_nominal*: Nominal GDP per capita in US dollars
+-   *gdp_ppp*: GDP at purchasing power parity (PPP) in billions of US dollars
+-   *gdp_per_capita_ppp*: GDP per capita at PPP in US dollars
+-   *gdp_ppp_share*: Country's share of world GDP at PPP as a percentage
+
+**Source:** <https://api-ninjas.com/api/gdp>
+
+**Note:** We obtained GDP data from the API below but we reached our monthly limit of pulls so we cannot use it anymore. However, when we originally pulled from the API, the data was saved into a CSV so we will use that to read in the data.
+
+```{r}
+# base url for GDP API
+base_url <- "https://api.api-ninjas.com/v1/gdp?country="
+```
+
+```{r}
+# function to get GDP info by country code
+gdp_info <- function(country_code) {
+  url <- str_c(base_url, country_code, 
+               #"&year=", as.character(year),
+               "&X-Api-Key=lJsfvISfAdepHh5moYOXLLFjSKBr5MYFQ1E9V7YN")
+  
+  rawToChar(GET(url)$content) |>
+    fromJSON()}
+```
+
+```{r}
+#| eval: false
+gdp_data <- map_dfr(
+  unique(measles_year$`Country Code`),
+  gdp_info) |>
+  filter(year > 2011)
+
+# save to csv
+gdp_data |>
+  write_csv("gdp_data.csv")
+```
+
+```{r}
+gdp_data <- read.csv(here::here("data", "gdp_data.csv"))
 ```
 
 ## Join and Clean API Data
@@ -467,6 +553,9 @@ world_df |>
 ```{r}
 measles_year_clean <- measles_year |>
   left_join(world_df, by = c("Country Code" = "ISO3")) |>
+  left_join(gdp_data,
+            by = c("Country Code" = "country",
+                   "Year" = "year")) |>
   mutate(Density = `Total Pop.`/area) |>
   select(-c(ASCII, Continent, "Annualized Pop. 2025"))
 ```
@@ -496,19 +585,25 @@ measles_year_clean |>
                gini_value = md("**GINI Value**"),
                geolocation_latitude = md("**Latitude**"),
                geolocation_longitude = md("**Longitude**"),
-               religion_name = md("**Religions**"),
-               religion_population = md("**Religion Populations**"),
-               religion_percentage = md("**Religion Percentages**"),
+              `Primary Religion` = md("**Primary Religion**"),
+              `Primary Religion Pop` = md("**Primary Religion Population**"),
+              `Primary Pct Religious` = md("**Primary Pct Religious**"),
                government_type = md("**Government Type**"),
-               government_leaders = md("**Government Leaders**"),
                hdi = md("**Human Development Index**"),
                borders = md("**Border Nations**"),
                area = md("**Land Area**"),
                "Avg. Celsius" = md("**Avg. Celsius**"),
                "Avg. Fahrenheit" = md("**Avg. Fahrenheit**"),
-               "Life Expectancy 2024" = md("**Life Expectancy 2024**")) |>
+               "Life Expectancy 2024" = md("**Life Expectancy 2024**"),
+               gdp_growth = md("**GDP Growth (%)**"),
+               gdp_nominal = md("**Nominal GDP (Billions USD)**"),
+               gdp_per_capita_nominal = md("**Nominal GDP per Capita (USD)**"),
+               gdp_ppp = md("**GDP (PPP, Billions USD)**"),
+               gdp_per_capita_ppp = md("**GDP per Capita (PPP, USD)**"),
+               gdp_ppp_share = md("**Share of World GDP (PPP, %)**")) |>
   fmt_number(decimals = 3,
-             columns = -c(Year, geolocation_latitude, geolocation_longitude),
+             columns = -c(Year, geolocation_latitude,
+                          geolocation_longitude),
              use_seps = TRUE) |>
   tab_caption(md("Table 2. REST API Data joined with annual measles data"))
 ```
@@ -609,14 +704,17 @@ measles_year_clean <- measles_year_clean |>
          `Gini Value` = gini_value,
          "Latitude" = geolocation_latitude,
          "Longitude" = geolocation_longitude,
-         "Religion" = religion_name,
-         "Religion Pop." = religion_population,
-         "Pct Religious" = religion_percentage,
          "Govt. Type" = government_type,
          "HDI" = hdi,
          "Borders" = borders,
          "Area" = area,
-         "Govt. Leaders" = government_leaders)
+         `GDP Growth (%)` = gdp_growth,
+         `Nominal GDP` = gdp_nominal,
+         `Nominal GDP per Capita` = gdp_per_capita_nominal,
+         `GDP PPP` = gdp_ppp,
+         `GDP per capita PPP` = gdp_per_capita_ppp,
+         `Share of World GDP PPP (%)` = gdp_ppp_share) |>
+  select(-government_leaders)
 
 # clean gini data
 gini_data <- measles_year_clean |>
@@ -634,15 +732,78 @@ gini_data <- gini_data |>
   select(`Country Code`, Year, `Gini Value`)
 
 measles_final <- measles_year_clean |>
-  left_join(gini_data, by = c("Country Code", "Year"))
+  left_join(gini_data, by = c("Country Code", "Year")) |>
+  select(-c(X, error))
 ```
 
 ## Final Dataset
+
+```{r}
+measles_final |>
+  head(10) |>
+  gt() |> 
+  tab_header(title = md("Final Dataset")) |>
+    cols_label(Region = md("**Region**"),
+               Country = md("**Country**"),
+               "Country Code" = md("**Country Code**"),
+               Year = md("**Year**"),
+               "Total Pop." = md("**Total Pop.**"),
+               Density = md("**Population Density (People/km^2)**"),
+              "Total Suspected Cases" = md("**Total Suspected Cases**"),
+              "Total Measles" = md("**Total Measles Cases**"),
+               "Total Lab Measles" = md("**Total Lab Measles**"),
+              "Total Epi Measles" = md("**Total Epidem Measles**"),
+              "Total Clinical Measles" = md("**Clinical Measles Cases**"),
+              "Total Measles per Million" = md("**Measles Rate Per Million**"),
+              "Total Discarded" = md("**Discarded Cases**"),
+              "Total Discarded per Million" = md("**Discarded Rate Per Million**"),
+               `Gini Value` = md("**GINI Value**"),
+               Latitude = md("**Latitude**"),
+               Longitude = md("**Longitude**"),
+               `Primary Religion` = md("**Primary Religion**"),
+               `Primary Religion Pop` = md("**Primary Religion Population**"),
+               `Primary Pct Religious` = md("**Primary Pct Religious**"),
+               `Govt. Type` = md("**Government Type**"),
+               HDI = md("**Human Development Index**"),
+               Borders = md("**Border Nations**"),
+               Area = md("**Land Area**"),
+               "Avg. Celsius" = md("**Avg. Celsius**"),
+               "Avg. Fahrenheit" = md("**Avg. Fahrenheit**"),
+               "Life Expectancy 2024" = md("**Life Expectancy 2024**"),
+               `GDP Growth (%)` = md("**GDP Growth (%)**"),
+               `Nominal GDP` = md("**Nominal GDP (Billions USD)**"),
+               `Nominal GDP per Capita` = md("**Nominal GDP per Capita (USD)**"),
+               `GDP PPP` = md("**GDP (PPP, Billions USD)**"),
+               `GDP per capita PPP` = md("**GDP per Capita (PPP, USD)**"),
+               `Share of World GDP PPP (%)` = md("**Share of World GDP (PPP, %)**"),
+               `MCV1 Coverage` = md("**MCV1 Coverage**")) |>
+  fmt_number(columns = c(`Total Pop.`,
+                         `Total Suspected Cases`,
+                         `Total Measles`,
+                         `Total Lab Measles`,
+                         `Total Epi Measles`,
+                         `Total Clinical Measles`,
+                         `Total Discarded`,
+                         Area,
+                         `Primary Religion Pop`),
+             decimals = 0,
+             use_seps = TRUE) |> 
+  fmt_number(columns = c(Latitude,
+                         Longitude,
+                         `Nominal GDP`,
+                         `Nominal GDP per Capita`,
+                         `GDP PPP`,
+                         `GDP per capita PPP`,
+                         `Share of World GDP PPP (%)`,
+                         Density),
+             decimals = 3,
+             use_seps = TRUE)
+```
 
 ```{r}
 head(measles_final)
 
 # save to csv
 measles_final |>
-  write_csv("measles_final.csv")
+  write_csv("data", "measles_final.csv")
 ```
