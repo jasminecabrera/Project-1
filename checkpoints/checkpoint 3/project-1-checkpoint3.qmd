@@ -663,10 +663,10 @@ In a .csv file already, so it could not be scraped, but I thought it would be in
 ```{r}
 #| message: false
 #| warning: false
-mcv <-read_csv(here::here("data", "mcv1.csv"))
+mcv <- read_csv(here::here("data", "mcv1.csv"))
 
 mcv <- mcv |> 
-  select(SpatialDimValueCode, Period, Value) |>
+  dplyr::select(SpatialDimValueCode, Period, Value) |>
   rename("Country Code" = SpatialDimValueCode,
          "MCV1 Coverage" = Value,
          "MCV1 Year" = Period) 
