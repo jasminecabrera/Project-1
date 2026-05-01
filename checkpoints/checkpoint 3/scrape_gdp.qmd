@@ -1,0 +1,138 @@
+---
+title: "nominal gdp"
+format: html
+editor: visual
+---
+
+## Scraping Nominal GDP
+
+```{r}
+#| message: false
+# libraries
+library(rvest)
+library(tidyverse)
+library(httr)
+```
+
+```{r}
+scrape_temp_page <- function(url) {
+    
+    # 1 second crawl delay
+    Sys.sleep(1)
+    
+    # read in page
+    page <- read_html(url)
+    
+    # tables
+    tables
+    
+    # Put page elements into a data frame / tibble
+    tibble(Country = country_region,
+           Continent = continent,
+           Temperature = temp)}
+```
+
+```{r}
+url <- "https://en.wikipedia.org/wiki/List_of_countries_by_past_and_projected_GDP_(nominal)"
+
+# read in page
+page <- read_html(url)
+
+tables <- page |>
+  html_elements("table")
+
+# 2010s table
+table5 <- tables[[5]] |>
+  html_table(fill = TRUE)
+
+# 2020s table
+table6 <- tables[[6]] |>
+  html_table(fill = TRUE)
+
+# keep important years
+table5 <- table5 |>
+  dplyr::select(-c(`2010`, `2011`))
+
+table6 <- table6 |>
+  dplyr::select(c(`Country / territory`,`2020`, `2021`, `2022`, `2023`, `2024`))
+
+# join data
+nominal_gdp <- table5 |>
+  full_join(table6, by = "Country / territory")
+
+# rename cols
+nominal_gdp <- nominal_gdp |>
+  rename(`Country` = `Country / territory`)
+
+nominal_gdp
+```
+
+```{r}
+# scrape country codes
+codeurl <- "https://en.wikipedia.org/wiki/Comparison_of_alphabetic_country_codes"
+
+# read in page
+page1 <- read_html(codeurl)
+
+tables <- page1 |>
+  html_elements("table")
+
+# code table
+table1 <- tables[[1]] |>
+  html_table(fill = TRUE)
+
+codes <- table1 |>
+  dplyr::select(c(Country, ISO))
+```
+
+```{r}
+# join code and nominal gdp data
+nomgdp_code <- nominal_gdp |>
+  left_join(codes, join_by("Country"))
+
+# countries without iso code
+countries_missing_iso <- nomgdp_code$Country[is.na(nomgdp_code$ISO)]
+
+# iso codes
+missing_iso <- data.frame(
+  Country = c(
+    "Bahamas", "China", "Democratic Republic of the Congo",
+    "Republic of the Congo", "Ivory Coast", "Gambia",
+    "Hong Kong", "Ireland", "South Korea",
+    "Federated States of Micronesia", "North Macedonia",
+    "Russia", "Samoa", "Taiwan", "Timor-Leste", "United Kingdom"),
+  ISO_new = c(
+    "BHS", "CHN", "COD",
+    "COG", "CIV", "GMB",
+    "HKG", "IRL", "KOR",
+    "FSM", "MKD",
+    "RUS", "WSM", "TWN", "TLS", "GBR"),
+  stringsAsFactors = FALSE)
+
+# add missing iso
+nomgdp_clean <- nomgdp_code |>
+  left_join(missing_iso, by = "Country") |>
+  mutate(ISO = if_else(is.na(ISO), ISO_new, ISO),
+         ISO = if_else(Country == "Kosovo", "XKX", ISO)) |>
+  dplyr::select(-ISO_new) 
+
+nomgdp_clean <- nomgdp_clean |> 
+  pivot_longer(
+    cols = matches("^\\d{4}$"), 
+    names_to = "Year",
+    values_to = "Nominal GDP") |>
+  dplyr::select(-Country) |>
+  mutate(Year = as.numeric(Year))
+  
+nomgdp_clean
+
+# save csv
+write.csv(nomgdp_clean, "nomgdp_clean.csv", row.names = FALSE)
+```
+
+```{r}
+measles_df_clean <- measles_df |>
+  left_join(nomgdp_clean, by = c("Country Code" = "ISO", "Year" = "Year"))
+
+write.csv(measles_df_clean, "measles_df_clean.csv", row.names = FALSE)
+```

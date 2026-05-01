@@ -546,6 +546,7 @@ gdp_data |>
 
 ```{r}
 gdp_data <- read.csv(here::here("data", "gdp_data.csv"))
+gdp_data
 ```
 
 ## Join and Clean API Data
@@ -808,4 +809,36 @@ head(measles_final)
 # save to csv
 measles_final |>
   write_csv("data", "measles_final.csv")
+```
+
+```{r}
+# names of gdp
+gdp_cols <- names(gdp_data)
+
+# names of your final/joined data
+measles_final <- read_csv(here::here("data", "measles_final.csv"))
+final_cols <- names(measles_final)
+
+# columns in final_data that also came from gdp
+cols_to_remove <- final_cols[final_cols %in% gdp_cols]
+
+# see which columns these are
+cols_to_remove
+
+
+measles_df <- measles_final |>
+  dplyr::select(-c(`GDP Growth (%)`, `Nominal GDP`, `Nominal GDP per Capita`,
+            `GDP PPP`, `GDP per capita PPP`, `Share of World GDP PPP (%)`)) |>
+  mutate(Region = dplyr::recode(Region,
+                         "AFRO" = "Africa", 
+                         "AMRO" = "Americas", 
+                         "EMRO" = "Eastern Mediterranean", 
+                         "EURO" = "Europe", 
+                         "SEARO" = "South East Asia", 
+                         "WPRO" = "Western Pacific"))
+
+measles_df |>
+  write_csv("data", "measles_df.csv")
+
+measles_df
 ```

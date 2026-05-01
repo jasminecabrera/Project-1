@@ -23,6 +23,7 @@ library(gt)
 library(broom)
 library(MASS)
 library(scales)
+library(htmltools)
 ```
 
 ## Motivation
@@ -186,36 +187,93 @@ world_df |>
 
 **Data Description:**
 
-The GDP data for each country were accessed via API Ninjas, a third-party API provider. As of right now, the documentation does not explicitly state the original data source or the methods used for data collection. The data covers 188 countries, with each country possessing multiple years of GDP data. Therefore, an observational unit is represented by a country-year pair. The dataset includes historical and recent GDP values up to 2025. However, we decided to focus only on the years 2012 and later to align with the range of the WHO measles data. 
-
-GDP represents an important indicator of a country’s socioeconomic status and could explain variation in measles incidence across countries. Higher-GDP countries generally have higher access to healthcare resources, including vaccines, while lower-GDP countries face barriers to providing effective healthcare for their citizens. By incorporating this data, we can examine how GDP impacts measles incidence and identify regions that are most impacted by GDP levels.
-
 **Source:**
-
-[API Ninjas](https://api-ninjas.com/api/gdp)
 
 **Data:**
 
 ```{r}
 #| code-fold: true
 #| eval: false
-# base url for GDP API
-base_url <- "https://api.api-ninjas.com/v1/gdp?country="
+url <- "https://en.wikipedia.org/wiki/List_of_countries_by_past_and_projected_GDP_(nominal)"
 
-# function to get GDP info by country code
-gdp_info <- function(country_code) {
-  url <- str_c(base_url, country_code, 
-               #"&year=", as.character(year),
-               "&X-Api-Key=lJsfvISfAdepHh5moYOXLLFjSKBr5MYFQ1E9V7YN")
-  
-  rawToChar(GET(url)$content) |>
-    fromJSON()}
+# read in page
+page <- read_html(url)
 
-# gdp
-gdp_data <- map_dfr(
-  unique(measles_year$`Country Code`),
-  gdp_info) |>
-  filter(year > 2011)
+tables <- page |>
+  html_elements("table")
+
+# 2010s table
+table5 <- tables[[5]] |>
+  html_table(fill = TRUE)
+
+# 2020s table
+table6 <- tables[[6]] |>
+  html_table(fill = TRUE)
+
+# keep important years
+table5 <- table5 |>
+  dplyr::select(-c(`2010`, `2011`))
+
+table6 <- table6 |>
+  dplyr::select(c(`Country / territory`,`2020`, `2021`, `2022`, `2023`, `2024`))
+
+# join data
+nominal_gdp <- table5 |>
+  full_join(table6, by = "Country / territory")
+
+# rename cols
+nominal_gdp <- nominal_gdp |>
+  rename(`Country` = `Country / territory`)
+```
+
+```{r}
+#| code-fold: true
+#| eval: false
+# scrape country codes
+codeurl <- "https://en.wikipedia.org/wiki/Comparison_of_alphabetic_country_codes"
+
+# read in page
+page1 <- read_html(codeurl)
+
+tables <- page1 |>
+  html_elements("table")
+
+# code table
+table1 <- tables[[1]] |>
+  html_table(fill = TRUE)
+
+codes <- table1 |>
+  dplyr::select(c(Country, ISO))
+
+# join code and nominal gdp data
+nomgdp_code <- nominal_gdp |>
+  left_join(codes, join_by("Country"))
+
+# countries without iso code
+countries_missing_iso <- nomgdp_code$Country[is.na(nomgdp_code$ISO)]
+
+# iso codes
+missing_iso <- data.frame(
+  Country = c(
+    "Bahamas", "China", "Democratic Republic of the Congo",
+    "Republic of the Congo", "Ivory Coast", "Gambia",
+    "Hong Kong", "Ireland", "South Korea",
+    "Federated States of Micronesia", "North Macedonia",
+    "Russia", "Samoa", "Taiwan", "Timor-Leste", "United Kingdom"),
+  ISO_new = c(
+    "BHS", "CHN", "COD",
+    "COG", "CIV", "GMB",
+    "HKG", "IRL", "KOR",
+    "FSM", "MKD",
+    "RUS", "WSM", "TWN", "TLS", "GBR"),
+  stringsAsFactors = FALSE)
+
+# add missing iso
+nomgdp_clean <- nomgdp_code |>
+  left_join(missing_iso, by = "Country") |>
+  mutate(ISO = if_else(is.na(ISO), ISO_new, ISO),
+         ISO = if_else(Country == "Kosovo", "XKX", ISO)) |>
+  dplyr::select(-ISO_new) 
 ```
 
 ### **Measles Vaccine (1st Dose) Immunization**
@@ -256,7 +314,7 @@ Using the various datasets above, we joined them using the ISO3/Country Code. Th
 ```{r}
 #| message: false
 #| code-fold: true
-measles <- read_csv(here::here("report", "measles_df.csv"))
+measles <- read_csv(here::here("report", "measles_df_clean.csv"))
 
 head(measles) |>
   gt() |>
@@ -757,7 +815,8 @@ mcv_gdp <- function(region = NULL, country = NULL, year = NULL){
           fns = function(x) paste0(x, "%")) |>
       tab_header(title = md(glue::glue("**Nominal GDP per Capita and MCV1 Coverage for {country} Across Time**"))) |>
       tab_style(style = cell_text(weight = "bold"),
-                locations = cells_column_labels(everything()))))
+                locations = cells_column_labels(everything()))) |>
+      tab_footnote(footnote = "Scores are out of 100.")
     
   } else {
     stop("Invalid combination of inputs. Provide either country (+ optional year) or region + year.")}}
